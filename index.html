@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>제주 레이스 (HARD MODE)</title>
+    <title>제주 레이스 (기기 맞춤형)</title>
     <style>
         body, html {
             margin: 0; padding: 0;
@@ -34,12 +34,13 @@
         #player {
             position: absolute; bottom: 120px; left: 50%;
             font-size: 50px; transform: translate(-50%, 0);
-            z-index: 5; transition: left 0.05s ease-out; /* 반응성 상향 */
+            z-index: 5; transition: left 0.05s ease-out;
         }
 
+        /* 컨트롤러: 기본적으로 숨김 (모바일에서만 보임) */
         #controls {
-            position: absolute; bottom: 20px;
-            width: 100%; display: flex;
+            position: absolute; bottom: 30px;
+            width: 100%; display: none; 
             justify-content: space-around;
             padding: 0 20px; box-sizing: border-box;
             z-index: 100;
@@ -52,14 +53,12 @@
             font-size: 40px; display: flex;
             align-items: center; justify-content: center;
             user-select: none; -webkit-tap-highlight-color: transparent;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
         }
 
-        .control-btn:active { background: rgba(255, 255, 255, 0.8); transform: scale(0.9); }
-
-        .obstacle { position: absolute; font-size: 40px; z-index: 4; }
-        .trap { position: absolute; font-size: 45px; z-index: 4; }
-        .lucky-box { position: absolute; font-size: 40px; z-index: 6; animation: rotate 1s infinite linear; }
+        .obstacle, .trap, .lucky-box { position: absolute; z-index: 4; }
+        .obstacle { font-size: 40px; }
+        .trap { font-size: 45px; }
+        .lucky-box { font-size: 40px; animation: rotate 1s infinite linear; }
 
         @keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
@@ -79,7 +78,6 @@
             transform: translate(-50%, -50%);
             background: white; padding: 25px; border-radius: 15px;
             text-align: center; display: none; z-index: 1000; width: 75%;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
         }
 
         .btn-restart {
@@ -108,7 +106,7 @@
     </div>
 
     <div id="game-over" class="result-screen">
-        <h2 style="color:#ff4757;">실력 부족!</h2>
+        <h2 id="over-msg" style="color:#ff4757;">GAME OVER</h2>
         <p id="final-result"></p>
         <button class="btn-restart" onclick="location.reload()">다시 도전</button>
     </div>
@@ -119,6 +117,7 @@
     const scoreDisplay = document.getElementById('score');
     const container = document.getElementById('game-container');
     const eventTitle = document.getElementById('event-title');
+    const controls = document.getElementById('controls');
     
     let score = 100;
     let bestScore = parseInt(localStorage.getItem('jeju_best_score')) || 0;
@@ -126,9 +125,7 @@
     let obstacles = [], traps = [], luckyBoxes = [];
     let isGameActive = true, isStormActive = false, isLuckyActive = false;
     
-    // 🔥 속도 50% 상향 패치
-    let baseSpeed = 7.5; // 기존 5 -> 7.5
-    let speedIncr = 225; // 점수당 가속도도 강화
+    let baseSpeed = 7.5; 
     let moveDir = 0;
     
     let stormClearedMilestones = new Set();
@@ -136,18 +133,29 @@
 
     document.getElementById('best-score').innerText = bestScore;
 
-    // 터치 컨트롤
-    document.getElementById('btn-left').addEventListener('touchstart', (e) => { e.preventDefault(); moveDir = -1; });
-    document.getElementById('btn-left').addEventListener('touchend', () => moveDir = 0);
-    document.getElementById('btn-right').addEventListener('touchstart', (e) => { e.preventDefault(); moveDir = 1; });
-    document.getElementById('btn-right').addEventListener('touchend', () => moveDir = 0);
+    // --- [수정] 기기 감지 및 조작 설정 ---
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-    // 키보드 컨트롤
-    window.addEventListener('keydown', (e) => {
-        if(e.key === 'ArrowLeft' || e.key === 'a') moveDir = -1;
-        if(e.key === 'ArrowRight' || e.key === 'd') moveDir = 1;
-    });
-    window.addEventListener('keyup', () => moveDir = 0);
+    if (isMobile) {
+        // 모바일인 경우: 터치 버튼 표시
+        controls.style.display = 'flex';
+        
+        document.getElementById('btn-left').addEventListener('touchstart', (e) => { e.preventDefault(); moveDir = -1; });
+        document.getElementById('btn-left').addEventListener('touchend', () => moveDir = 0);
+        document.getElementById('btn-right').addEventListener('touchstart', (e) => { e.preventDefault(); moveDir = 1; });
+        document.getElementById('btn-right').addEventListener('touchend', () => moveDir = 0);
+    } else {
+        // PC인 경우: WASD 키보드 활성화
+        window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            if (key === 'a') moveDir = -1;
+            if (key === 'd') moveDir = 1;
+        });
+        window.addEventListener('keyup', (e) => {
+            const key = e.key.toLowerCase();
+            if (key === 'a' || key === 'd') moveDir = 0;
+        });
+    }
 
     function spawnObstacle() {
         if (!isGameActive) return;
@@ -157,7 +165,6 @@
         el.style.top = '-50px'; 
         container.appendChild(el);
         obstacles.push({ el, y: -50 });
-        // 생성 주기도 더 빨라짐
         setTimeout(spawnObstacle, Math.max(200, 1100 - (score * 1.8)));
     }
 
@@ -186,16 +193,15 @@
     function updateGame() {
         if (!isGameActive) return;
 
-        // 플레이어 이동 속도도 약간 상향
+        // 플레이어 이동 (PC WASD / 모바일 터치 통합 처리)
         if (moveDir === -1) playerX -= 10;
         if (moveDir === 1) playerX += 10;
         playerX = Math.max(30, Math.min(window.innerWidth - 30, playerX));
         player.style.left = playerX + 'px';
 
-        // 🔥 실시간 속도 계산 (50% 상향 적용)
         let currentSpeed = baseSpeed + (score / 100);
 
-        // 이벤트 체크 (무한 루프)
+        // 이벤트 로직
         let sMile = Math.floor(score / 200) * 200;
         if (score >= 200 && !isStormActive && !isLuckyActive && !stormClearedMilestones.has(sMile)) {
             startEvent("폭풍우 발발!", "storm");
@@ -208,7 +214,6 @@
         }
         luckyClearedMilestones.forEach(m => { if (score < lMile) luckyClearedMilestones.delete(m); });
 
-        // 오브젝트 처리
         processObj(obstacles, currentSpeed, () => { score += 10; });
         processObj(traps, currentSpeed * 1.4, () => { score -= 10; });
         processObj(luckyBoxes, currentSpeed * 0.8, (i) => {
@@ -277,6 +282,7 @@
 
     function gameOver() {
         isGameActive = false;
+        document.getElementById('over-msg').innerText = score <= 0 ? "실력 부족!" : "GAME OVER";
         document.getElementById('final-result').innerText = `점수: ${score}점 (최고: ${bestScore})`;
         document.getElementById('game-over').style.display = 'block';
     }
